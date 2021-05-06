@@ -1,29 +1,28 @@
-const { logger } = require('../logger');
-const {
+import { logger } from '../logger';
+import { isSystemError, debugErrorAndContext } from './standardErrors';
+import {
+  FileSystemErrorContextInterface,
+  StatusCodeError,
   ErrorContext,
-  isSystemError,
-  debugErrorAndContext,
-} = require('./standardErrors');
+} from '../types';
+export class FileSystemErrorContext implements FileSystemErrorContextInterface {
+  filepath: string;
+  read: boolean;
+  write: boolean;
 
-class FileSystemErrorContext extends ErrorContext {
-  constructor(props = {}) {
-    super(props);
-    /** @type {string} */
+  constructor(
+    props: { filepath?: string; read?: boolean; write?: boolean } = {}
+  ) {
     this.filepath = props.filepath || '';
-    /** @type {boolean} */
     this.read = !!props.read;
-    /** @type {boolean} */
     this.write = !!props.write;
   }
 }
 
-/**
- * Logs a message for an error instance resulting from filesystem interaction.
- *
- * @param {Error|SystemError|Object} error
- * @param {FileSystemErrorContext}   context
- */
-function logFileSystemErrorInstance(error, context) {
+export function logFileSystemErrorInstance(
+  error: Error | StatusCodeError,
+  context: FileSystemErrorContext
+) {
   let fileAction = '';
   if (context.read) {
     fileAction = 'reading from';
@@ -41,10 +40,5 @@ function logFileSystemErrorInstance(error, context) {
     message.push(`This is the result of a system error: ${error.message}`);
   }
   logger.error(message.join(' '));
-  debugErrorAndContext(error, context);
+  debugErrorAndContext(error as StatusCodeError, context as ErrorContext);
 }
-
-module.exports = {
-  FileSystemErrorContext,
-  logFileSystemErrorInstance,
-};

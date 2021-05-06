@@ -1,6 +1,7 @@
-const fs = require('fs-extra');
-const path = require('path');
-const os = require('os');
+import fs from 'fs-extra';
+import path from 'path';
+import os from 'os';
+import { AccountConfig, Environment, Account, Scope, AuthType } from '../types';
 const ignore = require('ignore');
 const yaml = require('js-yaml');
 const findup = require('findup-sync');
@@ -10,7 +11,7 @@ const {
 } = require('../errorHandlers/fileSystemErrors');
 const { logErrorInstance } = require('../errorHandlers/standardErrors');
 const { getCwd } = require('../path');
-const {
+import {
   DEFAULT_HUBSPOT_CONFIG_YAML_FILE_NAME,
   EMPTY_CONFIG_FILE_CONTENTS,
   Mode,
@@ -20,42 +21,55 @@ const {
   PERSONAL_ACCESS_KEY_AUTH_METHOD,
   OAUTH_SCOPES,
   ENVIRONMENT_VARIABLES,
-} = require('./constants');
+} from './constants';
 const { getValidEnv } = require('./environment');
 
-let _config;
-let _configPath;
+type ConfigAPIOptions = {
+  source?: string;
+  path?: string;
+  silenceErrors?: boolean;
+  useEnv?: boolean;
+};
+
+let _config: AccountConfig | undefined;
+let _configPath: string;
 let environmentVariableConfigLoaded = false;
 
-const getConfig = () => _config;
+export const getConfig = (): AccountConfig | undefined => _config;
 
-const setConfig = updatedConfig => {
+export const setConfig = (
+  updatedConfig: AccountConfig | undefined
+): AccountConfig | undefined => {
   _config = updatedConfig;
   return _config;
 };
 
-const getConfigAccounts = config => {
+export const getConfigAccounts = (config?: AccountConfig) => {
   const __config = config || getConfig();
+  // TS-TODO: Should we return an empty array here? I didn't do it yet because !![] === true
+  // which would be a behavior change
   if (!__config) return;
   return __config.portals;
 };
 
-const getConfigDefaultAccount = config => {
+export const getConfigDefaultAccount = (config?: AccountConfig) => {
   const __config = config || getConfig();
   if (!__config) return;
   return __config.defaultPortal;
 };
 
-const getConfigAccountId = config => {
-  const __config = config || getConfig();
+export const getConfigAccountId = (account: Account) => {
+  // TS-TODO: It looks like account is a portal config, whereas getConfig
+  // returns the whole config file... is this a bug?  Also, account should
+  // be an optional param, but doing so will make TS complain about what I just mentioned
+  // so fix this either way
+  const __config = account || getConfig();
   if (!__config) return;
+  // @ts-ignore
   return __config.portalId;
 };
 
-/**
- * @returns {boolean}
- */
-const validateConfig = () => {
+export const validateConfig = () => {
   const config = getConfig();
   if (!config) {
     logger.error('No config was found');
@@ -66,8 +80,8 @@ const validateConfig = () => {
     logger.error('config.portals[] is not defined');
     return false;
   }
-  const accountIdsHash = {};
-  const accountNamesHash = {};
+  const accountIdsHash: { [key: string]: Account } = {};
+  const accountNamesHash: { [key: string]: Account } = {};
   return accounts.every(cfg => {
     if (!cfg) {
       logger.error('config.portals[] has an empty entry');
@@ -105,7 +119,7 @@ const validateConfig = () => {
   });
 };
 
-const accountNameExistsInConfig = name => {
+export const accountNameExistsInConfig = (name: string) => {
   const config = getConfig();
   const accounts = getConfigAccounts();
 
@@ -116,7 +130,7 @@ const accountNameExistsInConfig = name => {
   return accounts.some(cfg => cfg.name && cfg.name === name);
 };
 
-const getOrderedAccount = unorderedAccount => {
+export const getOrderedAccount = (unorderedAccount: Account) => {
   const { name, portalId, env, authType, ...rest } = unorderedAccount;
 
   return {
@@ -128,7 +142,9 @@ const getOrderedAccount = unorderedAccount => {
   };
 };
 
-const getOrderedConfig = unorderedConfig => {
+export const getOrderedConfig = (unorderedConfig?: AccountConfig) => {
+  if (!unorderedConfig) return;
+
   const {
     defaultPortal,
     defaultMode,
@@ -144,36 +160,36 @@ const getOrderedConfig = unorderedConfig => {
     httpTimeout,
     allowUsageTracking,
     ...rest,
-    portals: portals.map(getOrderedAccount),
+    portals: portals?.map(getOrderedAccount),
   };
 };
 
-const makeComparisonDir = filepath => {
+export const makeComparisonDir = (filepath: string) => {
   if (typeof filepath !== 'string') return null;
   // Append sep to make comparisons easier e.g. 'foos'.startsWith('foo')
   return path.dirname(path.resolve(filepath)).toLowerCase() + path.sep;
 };
 
-const getConfigComparisonDir = () => makeComparisonDir(_configPath);
+export const getConfigComparisonDir = () => makeComparisonDir(_configPath);
 
-const getGitComparisonDir = () => makeComparisonDir(findup('.git'));
+export const getGitComparisonDir = () => makeComparisonDir(findup('.git'));
 
 // Get all .gitignore files since they can cascade down directory structures
-const getGitignoreFiles = () => {
+export const getGitignoreFiles = () => {
   const gitDir = getGitComparisonDir();
-  const files = [];
+  const files: Array<string> = [];
   if (!gitDir) {
     // Not in git
     return files;
   }
   // Start findup from config dir
-  let cwd = _configPath && path.dirname(_configPath);
+  let cwd: boolean | string | null = _configPath && path.dirname(_configPath);
   while (cwd) {
     const ignorePath = findup('.gitignore', { cwd });
     if (
       ignorePath &&
       // Stop findup after .git dir is reached
-      makeComparisonDir(ignorePath).startsWith(makeComparisonDir(gitDir))
+      makeComparisonDir(ignorePath)?.startsWith(makeComparisonDir(gitDir) || '')
     ) {
       const file = path.resolve(ignorePath);
       files.push(file);
@@ -185,7 +201,7 @@ const getGitignoreFiles = () => {
   return files;
 };
 
-const isConfigPathInGitRepo = () => {
+export const isConfigPathInGitRepo = () => {
   const gitDir = getGitComparisonDir();
   if (!gitDir) return false;
   const configDir = getConfigComparisonDir();
@@ -193,7 +209,9 @@ const isConfigPathInGitRepo = () => {
   return configDir.startsWith(gitDir);
 };
 
-const configFilenameIsIgnoredByGitignore = ignoreFiles => {
+export const configFilenameIsIgnoredByGitignore = (
+  ignoreFiles: Array<string>
+) => {
   return ignoreFiles.some(gitignore => {
     const gitignoreContents = fs.readFileSync(gitignore).toString();
     const gitignoreConfig = ignore().add(gitignoreContents);
@@ -209,7 +227,7 @@ const configFilenameIsIgnoredByGitignore = ignoreFiles => {
   });
 };
 
-const shouldWarnOfGitInclusion = () => {
+export const shouldWarnOfGitInclusion = () => {
   if (!isConfigPathInGitRepo()) {
     // Not in git
     return false;
@@ -222,7 +240,7 @@ const shouldWarnOfGitInclusion = () => {
   return true;
 };
 
-const checkAndWarnGitInclusion = () => {
+export const checkAndWarnGitInclusion = () => {
   try {
     if (!shouldWarnOfGitInclusion()) return;
     logger.warn('Security Issue');
@@ -243,12 +261,7 @@ const checkAndWarnGitInclusion = () => {
   }
 };
 
-/**
- * @param {object}  options
- * @param {string}  options.path
- * @param {string}  options.source
- */
-const writeConfig = (options = {}) => {
+export const writeConfig = (options: ConfigAPIOptions = {}) => {
   if (environmentVariableConfigLoaded) {
     return;
   }
@@ -274,7 +287,7 @@ const writeConfig = (options = {}) => {
   }
 };
 
-const readConfigFile = () => {
+export const readConfigFile = () => {
   isConfigPathInGitRepo();
   let source;
   let error;
@@ -291,7 +304,7 @@ const readConfigFile = () => {
   return { source, error };
 };
 
-const parseConfig = configSource => {
+export const parseConfig = (configSource: Buffer | undefined) => {
   let parsed;
   let error;
   if (!configSource) {
@@ -307,7 +320,10 @@ const parseConfig = configSource => {
   return { parsed, error };
 };
 
-const loadConfigFromFile = (path, options = {}) => {
+export const loadConfigFromFile = (
+  path: string | null,
+  options: ConfigAPIOptions = {}
+) => {
   setConfigPath(getConfigPath(path));
   if (!_configPath) {
     if (!options.silenceErrors) {
@@ -323,7 +339,7 @@ const loadConfigFromFile = (path, options = {}) => {
   }
 
   logger.debug(`Reading config from ${_configPath}`);
-  const { source, error: sourceError } = readConfigFile(_configPath);
+  const { source, error: sourceError } = readConfigFile();
   if (sourceError) return;
   const { parsed, error: parseError } = parseConfig(source);
   if (parseError) return;
@@ -338,9 +354,9 @@ const loadConfigFromFile = (path, options = {}) => {
   }
 };
 
-const loadConfig = (
-  path,
-  options = {
+export const loadConfig = (
+  path: string | null,
+  options: ConfigAPIOptions = {
     useEnv: false,
   }
 ) => {
@@ -355,7 +371,7 @@ const loadConfig = (
   }
 };
 
-const isTrackingAllowed = () => {
+export const isTrackingAllowed = () => {
   if (!configFileExists() || configFileIsBlank()) {
     return true;
   }
@@ -363,7 +379,7 @@ const isTrackingAllowed = () => {
   return allowUsageTracking !== false;
 };
 
-const getAndLoadConfigIfNeeded = (options = {}) => {
+export const getAndLoadConfigIfNeeded = (options = {}): AccountConfig => {
   if (!_config) {
     loadConfig(null, {
       silenceErrors: true,
@@ -373,11 +389,11 @@ const getAndLoadConfigIfNeeded = (options = {}) => {
   return _config || {};
 };
 
-const getConfigPath = path => {
+const getConfigPath = (path: string | null) => {
   return path || (configFileExists() && _configPath) || findConfig(getCwd());
 };
 
-const findConfig = directory => {
+export const findConfig = (directory: string) => {
   return findup(
     [
       DEFAULT_HUBSPOT_CONFIG_YAML_FILE_NAME,
@@ -387,18 +403,18 @@ const findConfig = directory => {
   );
 };
 
-const setConfigPath = path => {
+export const setConfigPath = (path: string) => {
   return (_configPath = path);
 };
 
-const getEnv = nameOrId => {
+export const getEnv = (nameOrId?: string) => {
   let env = ENVIRONMENTS.PROD;
   const config = getAndLoadConfigIfNeeded();
   const accountId = getAccountId(nameOrId);
 
   if (accountId) {
     const accountConfig = getAccountConfig(accountId);
-    if (accountConfig.env) {
+    if (accountConfig?.env) {
       env = accountConfig.env;
     }
   } else if (config && config.env) {
@@ -407,19 +423,16 @@ const getEnv = nameOrId => {
   return env;
 };
 
-const getAccountConfig = accountId =>
-  getConfigAccounts(getAndLoadConfigIfNeeded()).find(
+export const getAccountConfig = (accountId?: number | string) =>
+  getConfigAccounts(getAndLoadConfigIfNeeded())?.find(
     account => account.portalId === accountId
   );
 
-/*
- * Returns a portalId from the config if it exists, else returns null
- */
-const getAccountId = nameOrId => {
+export const getAccountId = (nameOrId?: string | number) => {
   const config = getAndLoadConfigIfNeeded();
-  let name;
-  let accountId;
-  let account;
+  let name: string | number | undefined;
+  let accountId: number | undefined;
+  let account: Account | undefined;
 
   if (!nameOrId) {
     const defaultAccount = getConfigDefaultAccount(config);
@@ -439,9 +452,9 @@ const getAccountId = nameOrId => {
 
   const accounts = getConfigAccounts(config);
   if (name) {
-    account = accounts.find(p => p.name === name);
+    account = accounts?.find(p => p.name === name);
   } else if (accountId) {
-    account = accounts.find(p => accountId === p.portalId);
+    account = accounts?.find(p => accountId === p.portalId);
   }
 
   if (account) {
@@ -451,10 +464,7 @@ const getAccountId = nameOrId => {
   return null;
 };
 
-/**
- * @throws {Error}
- */
-const updateAccountConfig = configOptions => {
+export const updateAccountConfig = (configOptions: Account) => {
   const {
     portalId,
     authType,
@@ -490,7 +500,7 @@ const updateAccountConfig = configOptions => {
   const env = getValidEnv(environment || (accountConfig && accountConfig.env), {
     maskedProductionValue: undefined,
   });
-  const mode = defaultMode && defaultMode.toLowerCase();
+  const mode = defaultMode && (defaultMode.toLowerCase() as Mode);
   const nextAccountConfig = {
     ...accountConfig,
     name: name || (accountConfig && accountConfig.name),
@@ -499,15 +509,17 @@ const updateAccountConfig = configOptions => {
     authType,
     auth,
     apiKey,
-    defaultMode: Mode[mode] ? mode : undefined,
+    defaultMode: (Mode as any)[mode || ''] ? mode : undefined,
     personalAccessKey,
   };
 
-  let accounts = getConfigAccounts(config);
+  let accounts = getConfigAccounts(config) || [];
   if (accountConfig) {
     logger.debug(`Updating config for ${portalId}`);
-    const index = accounts.indexOf(accountConfig);
-    accounts[index] = nextAccountConfig;
+    const index = accounts?.indexOf(accountConfig);
+    if (typeof index === 'number' && index !== -1) {
+      accounts[index] = nextAccountConfig;
+    }
   } else {
     logger.debug(`Adding config entry for ${portalId}`);
     if (accounts) {
@@ -520,10 +532,7 @@ const updateAccountConfig = configOptions => {
   return nextAccountConfig;
 };
 
-/**
- * @throws {Error}
- */
-const updateDefaultAccount = defaultAccount => {
+export const updateDefaultAccount = (defaultAccount?: number | string) => {
   if (
     !defaultAccount ||
     (typeof defaultAccount !== 'number' && typeof defaultAccount !== 'string')
@@ -540,25 +549,25 @@ const updateDefaultAccount = defaultAccount => {
   writeConfig();
 };
 
-const setDefaultConfigPathIfUnset = () => {
+export const setDefaultConfigPathIfUnset = () => {
   if (!_configPath) {
     setDefaultConfigPath();
   }
 };
 
-const setDefaultConfigPath = () => {
+export const setDefaultConfigPath = () => {
   setConfigPath(`${getCwd()}/${DEFAULT_HUBSPOT_CONFIG_YAML_FILE_NAME}`);
 };
 
-const configFileExists = () => {
+export const configFileExists = () => {
   return _configPath && fs.existsSync(_configPath);
 };
 
-const configFileIsBlank = () => {
+export const configFileIsBlank = () => {
   return _configPath && fs.readFileSync(_configPath).length === 0;
 };
 
-const createEmptyConfigFile = ({ path } = {}) => {
+export const createEmptyConfigFile = ({ path }: { path?: string } = {}) => {
   if (!path) {
     setDefaultConfigPathIfUnset();
 
@@ -572,13 +581,13 @@ const createEmptyConfigFile = ({ path } = {}) => {
   writeConfig({ source: EMPTY_CONFIG_FILE_CONTENTS, path });
 };
 
-const deleteEmptyConfigFile = () => {
+export const deleteEmptyConfigFile = () => {
   return (
     configFileExists() && configFileIsBlank() && fs.unlinkSync(_configPath)
   );
 };
 
-const getConfigVariablesFromEnv = () => {
+export const getConfigVariablesFromEnv = () => {
   const env = process.env;
 
   return {
@@ -586,17 +595,21 @@ const getConfigVariablesFromEnv = () => {
     clientId: env[ENVIRONMENT_VARIABLES.HUBSPOT_CLIENT_ID],
     clientSecret: env[ENVIRONMENT_VARIABLES.HUBSPOT_CLIENT_SECRET],
     personalAccessKey: env[ENVIRONMENT_VARIABLES.HUBSPOT_PERSONAL_ACCESS_KEY],
-    portalId: parseInt(env[ENVIRONMENT_VARIABLES.HUBSPOT_PORTAL_ID], 10),
+    portalId: parseInt(env[ENVIRONMENT_VARIABLES.HUBSPOT_PORTAL_ID] || '', 10),
     refreshToken: env[ENVIRONMENT_VARIABLES.HUBSPOT_REFRESH_TOKEN],
     env: getValidEnv(env[ENVIRONMENT_VARIABLES.HUBSPOT_ENVIRONMENT]),
   };
 };
 
-const generatePersonalAccessKeyConfig = (portalId, personalAccessKey, env) => {
+export const generatePersonalAccessKeyConfig = (
+  portalId: number,
+  personalAccessKey: string,
+  env: Environment
+): AccountConfig => {
   return {
     portals: [
       {
-        authType: PERSONAL_ACCESS_KEY_AUTH_METHOD.value,
+        authType: PERSONAL_ACCESS_KEY_AUTH_METHOD.value as AuthType,
         portalId,
         personalAccessKey,
         env,
@@ -605,18 +618,18 @@ const generatePersonalAccessKeyConfig = (portalId, personalAccessKey, env) => {
   };
 };
 
-const generateOauthConfig = (
-  portalId,
-  clientId,
-  clientSecret,
-  refreshToken,
-  scopes,
-  env
-) => {
+export const generateOauthConfig = (
+  portalId: string | number,
+  clientId: string,
+  clientSecret: string,
+  refreshToken: string,
+  scopes: Array<Scope>,
+  env: Environment
+): AccountConfig => {
   return {
     portals: [
       {
-        authType: OAUTH_AUTH_METHOD.value,
+        authType: OAUTH_AUTH_METHOD.value as AuthType,
         portalId,
         auth: {
           clientId,
@@ -632,11 +645,15 @@ const generateOauthConfig = (
   };
 };
 
-const generateApiKeyConfig = (portalId, apiKey, env) => {
+export const generateApiKeyConfig = (
+  portalId: string | number,
+  apiKey: string,
+  env: Environment
+): AccountConfig => {
   return {
     portals: [
       {
-        authType: API_KEY_AUTH_METHOD.value,
+        authType: API_KEY_AUTH_METHOD.value as AuthType,
         portalId,
         apiKey,
         env,
@@ -645,7 +662,7 @@ const generateApiKeyConfig = (portalId, apiKey, env) => {
   };
 };
 
-const loadConfigFromEnvironment = () => {
+export const loadConfigFromEnvironment = (): AccountConfig | undefined => {
   const {
     apiKey,
     clientId,
@@ -678,7 +695,7 @@ const loadConfigFromEnvironment = () => {
   }
 };
 
-const loadEnvironmentVariableConfig = () => {
+export const loadEnvironmentVariableConfig = () => {
   const envConfig = loadConfigFromEnvironment();
 
   if (!envConfig) {
@@ -693,42 +710,12 @@ const loadEnvironmentVariableConfig = () => {
   return setConfig(envConfig);
 };
 
-const isConfigFlagEnabled = flag => {
+export const isConfigFlagEnabled = (flag: string) => {
   if (!configFileExists() || configFileIsBlank()) {
     return false;
   }
 
   const config = getAndLoadConfigIfNeeded();
 
-  return config[flag] || false;
-};
-
-module.exports = {
-  checkAndWarnGitInclusion,
-  getAndLoadConfigIfNeeded,
-  getEnv,
-  getConfig,
-  getConfigAccounts,
-  getConfigDefaultAccount,
-  getConfigAccountId,
-  getConfigPath,
-  getOrderedAccount,
-  getOrderedConfig,
-  isConfigFlagEnabled,
-  setConfig,
-  setConfigPath,
-  loadConfig,
-  findConfig,
-  loadConfigFromEnvironment,
-  getAccountConfig,
-  getAccountId,
-  updateAccountConfig,
-  updateDefaultAccount,
-  createEmptyConfigFile,
-  deleteEmptyConfigFile,
-  isTrackingAllowed,
-  validateConfig,
-  writeConfig,
-  configFilenameIsIgnoredByGitignore,
-  accountNameExistsInConfig,
+  return flag in config || false;
 };

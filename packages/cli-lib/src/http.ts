@@ -1,20 +1,25 @@
-const path = require('path');
-const request = require('request');
-const requestPN = require('request-promise-native');
-const fs = require('fs-extra');
+import { getAccountConfig } from './lib/config';
+import { getRequestOptions } from './http/requestOptions';
+import { accessTokenForPersonalAccessKey } from './personalAccessKey';
+import path from 'path';
 const contentDisposition = require('content-disposition');
-
-const { getAccountConfig } = require('./lib/config');
-const { getRequestOptions } = require('./http/requestOptions');
-const { accessTokenForPersonalAccessKey } = require('./personalAccessKey');
 const { getOauthManager } = require('./oauth');
-const { logger } = require('./logger');
 const {
   FileSystemErrorContext,
   logFileSystemErrorInstance,
 } = require('./errorHandlers/fileSystemErrors');
+import { Account, RequestOptions } from './types';
+import requestPN from 'request-promise-native';
+import fs from 'fs-extra';
+import request from 'request';
+import { logger } from './logger';
+import { ServerResponse } from 'node:http';
 
-const withOauth = async (accountId, accountConfig, requestOptions) => {
+export const withOauth = async (
+  accountId: number,
+  requestOptions: RequestOptions,
+  accountConfig?: Account
+): Promise<RequestOptions> => {
   const { headers } = requestOptions;
   const oauth = getOauthManager(accountId, accountConfig);
   const accessToken = await oauth.accessToken();
@@ -27,11 +32,10 @@ const withOauth = async (accountId, accountConfig, requestOptions) => {
   };
 };
 
-const withPersonalAccessKey = async (
-  accountId,
-  accountConfig,
-  requestOptions
-) => {
+export const withPersonalAccessKey = async (
+  accountId: number,
+  requestOptions: RequestOptions
+): Promise<RequestOptions> => {
   const { headers } = requestOptions;
   const accessToken = await accessTokenForPersonalAccessKey(accountId);
   return {
@@ -43,32 +47,38 @@ const withPersonalAccessKey = async (
   };
 };
 
-const withPortalId = (portalId, requestOptions) => {
+export const withPortalId = (
+  portalId: number,
+  requestOptions: RequestOptions
+): RequestOptions => {
   const { qs } = requestOptions;
 
   return {
     ...requestOptions,
     qs: {
-      ...qs,
+      ...(qs || {}),
       portalId,
     },
   };
 };
 
-const withAuth = async (accountId, options) => {
+export const withAuth = async (
+  accountId: number,
+  options: RequestOptions
+): Promise<RequestOptions> => {
   const accountConfig = getAccountConfig(accountId);
-  const { env, authType, apiKey } = accountConfig;
+  const { env, authType, apiKey } = accountConfig || {};
   const requestOptions = withPortalId(
     accountId,
     getRequestOptions({ env }, options)
   );
 
   if (authType === 'personalaccesskey') {
-    return withPersonalAccessKey(accountId, accountConfig, requestOptions);
+    return withPersonalAccessKey(accountId, requestOptions);
   }
 
   if (authType === 'oauth2') {
-    return withOauth(accountId, accountConfig, requestOptions);
+    return withOauth(accountId, requestOptions, accountConfig);
   }
   const { qs } = requestOptions;
 
@@ -81,7 +91,10 @@ const withAuth = async (accountId, options) => {
   };
 };
 
-const addQueryParams = (requestOptions, params = {}) => {
+export const addQueryParams = (
+  requestOptions: RequestOptions,
+  params = {}
+): RequestOptions => {
   const { qs } = requestOptions;
   return {
     ...requestOptions,
@@ -92,37 +105,56 @@ const addQueryParams = (requestOptions, params = {}) => {
   };
 };
 
-const getRequest = async (accountId, options) => {
+export const getRequest = async (
+  accountId: number,
+  options: RequestOptions & { query?: { [key: string]: any } }
+) => {
   const { query, ...rest } = options;
   const requestOptions = addQueryParams(rest, query);
   return requestPN.get(await withAuth(accountId, requestOptions));
 };
 
-const postRequest = async (accountId, options) => {
+export const postRequest = async (
+  accountId: number,
+  options: RequestOptions
+) => {
   return requestPN.post(await withAuth(accountId, options));
 };
 
-const putRequest = async (accountId, options) => {
+export const putRequest = async (
+  accountId: number,
+  options: RequestOptions
+) => {
   return requestPN.put(await withAuth(accountId, options));
 };
 
-const patchRequest = async (accountId, options) => {
+export const patchRequest = async (
+  accountId: number,
+  options: RequestOptions
+) => {
   return requestPN.patch(await withAuth(accountId, options));
 };
 
-const deleteRequest = async (accountId, options) => {
+export const deleteRequest = async (
+  accountId: number,
+  options: RequestOptions
+) => {
   return requestPN.del(await withAuth(accountId, options));
 };
 
-const createGetRequestStream = ({ contentType }) => async (
-  accountId,
-  options,
-  destPath
+export const createGetRequestStream = ({
+  contentType,
+}: {
+  contentType: string;
+}) => async (
+  accountId: number,
+  options: RequestOptions & { query: { [key: string]: any } },
+  destPath: string
 ) => {
   const { query, ...rest } = options;
   const requestOptions = addQueryParams(rest, query);
 
-  const logFsError = err => {
+  const logFsError = (err: Error) => {
     logFileSystemErrorInstance(
       err,
       new FileSystemErrorContext({
@@ -136,8 +168,6 @@ const createGetRequestStream = ({ contentType }) => async (
   // Using `request` instead of `request-promise` per the docs so
   // the response can be piped.
   // https://github.com/request/request-promise#api-in-detail
-  //
-  // eslint-disable-next-line no-async-promise-executor
   return new Promise(async (resolve, reject) => {
     try {
       const { headers, ...opts } = await withAuth(accountId, requestOptions);
@@ -192,15 +222,17 @@ const createGetRequestStream = ({ contentType }) => async (
   });
 };
 
-module.exports = {
+export const getOctetStream = createGetRequestStream({
+  contentType: 'application/octet-stream',
+});
+
+export default {
   getRequestOptions,
   request: requestPN,
   get: getRequest,
-  getOctetStream: createGetRequestStream({
-    contentType: 'application/octet-stream',
-  }),
   post: postRequest,
   put: putRequest,
   patch: patchRequest,
   delete: deleteRequest,
+  getOctetStream,
 };
