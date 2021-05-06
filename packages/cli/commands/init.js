@@ -18,6 +18,7 @@ const {
   API_KEY_AUTH_METHOD,
   ENVIRONMENTS,
 } = require('@hubspot/cli-lib/lib/constants');
+const { i18n } = require('@hubspot/cli-lib/lib/lang');
 const { logger } = require('@hubspot/cli-lib/logger');
 const {
   updateConfigWithPersonalAccessKey,
@@ -82,7 +83,9 @@ const CONFIG_CREATION_FLOWS = {
 };
 
 exports.command = 'init';
-exports.describe = `initialize ${DEFAULT_HUBSPOT_CONFIG_YAML_FILE_NAME} for a HubSpot account`;
+exports.describe = i18n('en.cli.commands.init.describe', {
+  data: { configName: DEFAULT_HUBSPOT_CONFIG_YAML_FILE_NAME },
+});
 
 exports.handler = async options => {
   const { auth: authType = PERSONAL_ACCESS_KEY_AUTH_METHOD.value, c } = options;
@@ -95,10 +98,12 @@ exports.handler = async options => {
   const env = options.qa ? ENVIRONMENTS.QA : ENVIRONMENTS.PROD;
 
   if (fs.existsSync(configPath)) {
-    logger.error(`The config file '${configPath}' already exists.`);
-    logger.info(
-      'To update an existing config file, use the "hs auth" command.'
+    logger.error(
+      i18n('en.cli.commands.init.errors.configFileExists', {
+        data: { configPath },
+      })
     );
+    logger.info(i18n('en.cli.commands.init.info.updateConfig'));
     process.exit(1);
   }
 
@@ -111,8 +116,9 @@ exports.handler = async options => {
     const configPath = getConfigPath();
 
     logger.success(
-      `The config file "${configPath}" was created using "${authType}" for account ${name ||
-        accountId}.`
+      i18n('en.cli.commands.init.success.configFileCreated', {
+        data: { configPath, authType, account: name || accountId },
+      })
     );
 
     trackAuthAction('init', authType, TRACKING_STATUS.COMPLETE, accountId);
@@ -125,8 +131,7 @@ exports.handler = async options => {
 
 exports.builder = yargs => {
   yargs.option('auth', {
-    describe:
-      'specify auth method to use ["personalaccesskey", "oauth2", "apikey"]',
+    describe: i18n('en.cli.commands.init.options.auth.describe'),
     type: 'string',
     choices: [
       `${PERSONAL_ACCESS_KEY_AUTH_METHOD.value}`,
@@ -134,7 +139,12 @@ exports.builder = yargs => {
       `${API_KEY_AUTH_METHOD.value}`,
     ],
     default: PERSONAL_ACCESS_KEY_AUTH_METHOD.value,
-    defaultDescription: `"${PERSONAL_ACCESS_KEY_AUTH_METHOD.value}": \nAn access token tied to a specific user account. This is the recommended way of authenticating with local development tools.`,
+    defaultDescription: i18n(
+      'en.cli.commands.init.options.auth.defaultDescription',
+      {
+        data: { defaultType: PERSONAL_ACCESS_KEY_AUTH_METHOD.value },
+      }
+    ),
   });
 
   addConfigOptions(yargs, true);
